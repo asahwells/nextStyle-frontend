@@ -148,3 +148,34 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 )
+
+// Create axios instance with auth interceptor
+export const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+})
+
+// Add request interceptor to include auth token
+apiClient.interceptors.request.use(
+  (config) => {
+    const state = useAuthStore.getState()
+    if (state.user?.access_token) {
+      config.headers.Authorization = `Bearer ${state.user.access_token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  },
+)
+
+// Add response interceptor to handle token refresh
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      const state = useAuthStore.getState()
+      await state.refreshToken()
+    }
+    return Promise.reject(error)
+  },
+)

@@ -13,7 +13,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata = {
   title: "NextStyle - AI Virtual Try-On",
   description: "Experience virtual clothing try-on with cutting-edge AI technology.",
-    generator: 'v0.dev'
+    generator: 'v0.app'
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
