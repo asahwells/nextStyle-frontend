@@ -1,62 +1,45 @@
 "use client"
 
-import React, { createContext, useContext } from "react"
+import type React from "react"
+import { createContext, useContext, useEffect } from "react"
 import { useAuthStore } from "./auth-store"
-import { useRouter } from "next/navigation"
 
 interface AuthContextType {
-  user: {
-    id: string
-    email: string
-    role: "user" | "brand" | "admin"
-    is_brand_approved: boolean
-  } | null
+  user: any
+  isLoading: boolean
   isAuthenticated: boolean
-  signIn: (user: {
-    id: string
-    email: string
-    role: "user" | "brand" | "admin"
-    is_brand_approved: boolean
-    access_token: string
-    refresh_token: string
-  }) => void
-  signUp: (user: {
-    id: string
-    email: string
-    role: "user" | "brand" | "admin"
-    is_brand_approved: boolean
-    access_token: string
-    refresh_token: string
-  }) => void
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated, signIn, signUp, signOut } = useAuthStore()
-  const router = useRouter()
+  const authStore = useAuthStore()
 
-  // This effect can be used to handle initial authentication state or redirects
-  // For example, if you want to redirect to login page if not authenticated
-  // useEffect(() => {
-  //   if (!isAuthenticated && !['/auth/signin', '/auth/signup', '/auth/forgot-password', '/auth/reset-password', '/auth/brand-signup'].includes(router.pathname)) {
-  //     router.push('/auth/signin');
-  //   }
-  // }, [isAuthenticated, router]);
+  useEffect(() => {
+    // Check for existing auth token on mount
+    if (typeof document !== "undefined") {
+      const authToken = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("auth-token="))
+        ?.split("=")[1]
 
-  const contextValue = React.useMemo(
-    () => ({
-      user,
-      isAuthenticated,
-      signIn,
-      signUp,
-      signOut,
-    }),
-    [user, isAuthenticated, signIn, signUp, signOut],
-  )
+      if (authToken && !authStore.isAuthenticated) {
+        // Restore user session if token exists
+        const mockUser = {
+          id: "1",
+          email: "user@example.com",
+          name: "User",
+          role: "user" as const,
+        }
+        authStore.updateUser(mockUser)
+      }
+    }
+  }, [authStore])
 
-  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={authStore}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

@@ -1,157 +1,154 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
-import { toast } from "@/components/ui/use-toast"
-import type { Product } from "@/types/product"
+import type React from "react"
+import { createContext, useContext, useReducer, useEffect } from "react"
 
-interface CartItem extends Product {
+export interface CartItem {
+  id: string
+  name: string
+  price: number
+  image: string
   quantity: number
+  size?: string
+  color?: string
 }
 
-interface CartContextType {
-  cart: CartItem[]
-  addToCart: (product: Product, quantity: number) => void
-  removeFromCart: (productId: string) => void
-  updateQuantity: (productId: string, newQuantity: number) => void
+interface CartState {
+  items: CartItem[]
+  total: number
+  itemCount: number
+}
+
+type CartAction =
+  | { type: "ADD_ITEM"; payload: CartItem }
+  | { type: "REMOVE_ITEM"; payload: string }
+  | { type: "UPDATE_QUANTITY"; payload: { id: string; quantity: number } }
+  | { type: "CLEAR_CART" }
+  | { type: "LOAD_CART"; payload: CartItem[] }
+
+const cartReducer = (state: CartState, action: CartAction): CartState => {
+  switch (action.type) {
+    case "ADD_ITEM": {
+      const existingItem = state.items.find(
+        (item) =>
+          item.id === action.payload.id && item.size === action.payload.size && item.color === action.payload.color,
+      )
+
+      let newItems: CartItem[]
+      if (existingItem) {
+        newItems = state.items.map((item) =>
+          item.id === existingItem.id && item.size === existingItem.size && item.color === existingItem.color
+            ? { ...item, quantity: item.quantity + action.payload.quantity }
+            : item,
+        )
+      } else {
+        newItems = [...state.items, action.payload]
+      }
+
+      const total = newItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0)
+
+      return { items: newItems, total, itemCount }
+    }
+
+    case "REMOVE_ITEM": {
+      const newItems = state.items.filter((item) => item.id !== action.payload)
+      const total = newItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0)
+
+      return { items: newItems, total, itemCount }
+    }
+
+    case "UPDATE_QUANTITY": {
+      const newItems = state.items
+        .map((item) =>
+          item.id === action.payload.id ? { ...item, quantity: Math.max(0, action.payload.quantity) } : item,
+        )
+        .filter((item) => item.quantity > 0)
+
+      const total = newItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+      const itemCount = newItems.reduce((sum, item) => sum + item.quantity, 0)
+
+      return { items: newItems, total, itemCount }
+    }
+
+    case "CLEAR_CART":
+      return { items: [], total: 0, itemCount: 0 }
+
+    case "LOAD_CART": {
+      const total = action.payload.reduce((sum, item) => sum + item.price * item.quantity, 0)
+      const itemCount = action.payload.reduce((sum, item) => sum + item.quantity, 0)
+      return { items: action.payload, total, itemCount }
+    }
+
+    default:
+      return state
+  }
+}
+
+interface CartContextType extends CartState {
+  addItem: (item: CartItem) => void
+  removeItem: (id: string) => void
+  updateQuantity: (id: string, quantity: number) => void
   clearCart: () => void
-  cartTotal: number
   cartItemCount: number
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [cart, setCart] = useState<CartItem[]>([])
+  const [state, dispatch] = useReducer(cartReducer, {
+    items: [],
+    total: 0,
+    itemCount: 0,
+  })
 
-  // Load cart from localStorage on initial mount
+  // Load cart from localStorage on mount
   useEffect(() => {
-    try {
-      const storedCart = localStorage.getItem("nextstyle_cart")
-      if (storedCart) {
-        setCart(JSON.parse(storedCart))
+    if (typeof window !== "undefined") {
+      const savedCart = localStorage.getItem("cart")
+      if (savedCart) {
+        try {
+          const parsedCart = JSON.parse(savedCart)
+          dispatch({ type: "LOAD_CART", payload: parsedCart })
+        } catch (error) {
+          console.error("Error loading cart from localStorage:", error)
+        }
       }
-    } catch (error) {
-      console.error("Failed to load cart from localStorage:", error)
-      // Optionally clear corrupted cart or notify user
     }
   }, [])
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    try {
-      localStorage.setItem("nextstyle_cart", JSON.stringify(cart))
-    } catch (error) {
-      console.error("Failed to save cart to localStorage:", error)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("cart", JSON.stringify(state.items))
     }
-  }, [cart])
+  }, [state.items])
 
-  const addToCart = useCallback((product: Product, quantity: number) => {
-    setCart((prevCart) => {
-      const existingItemIndex = prevCart.findIndex((item) => item._id === product._id)
+  const addItem = (item: CartItem) => {
+    dispatch({ type: "ADD_ITEM", payload: item })
+  }
 
-      if (existingItemIndex > -1) {
-        const updatedCart = [...prevCart]
-        const existingItem = updatedCart[existingItemIndex]
-        const newQuantity = existingItem.quantity + quantity
+  const removeItem = (id: string) => {
+    dispatch({ type: "REMOVE_ITEM", payload: id })
+  }
 
-        if (newQuantity > product.stock_quantity) {
-          toast({
-            title: "Out of Stock",
-            description: `Cannot add more than available stock (${product.stock_quantity}) for ${product.name}.`,
-            variant: "destructive",
-          })
-          return prevCart
-        }
+  const updateQuantity = (id: string, quantity: number) => {
+    dispatch({ type: "UPDATE_QUANTITY", payload: { id, quantity } })
+  }
 
-        updatedCart[existingItemIndex] = {
-          ...existingItem,
-          quantity: newQuantity,
-        }
-        toast({
-          title: "Cart Updated",
-          description: `${quantity} x ${product.name} added to cart.`,
-        })
-        return updatedCart
-      } else {
-        if (quantity > product.stock_quantity) {
-          toast({
-            title: "Out of Stock",
-            description: `Cannot add more than available stock (${product.stock_quantity}) for ${product.name}.`,
-            variant: "destructive",
-          })
-          return prevCart
-        }
-        toast({
-          title: "Item Added to Cart",
-          description: `${product.name} added to cart.`,
-        })
-        return [...prevCart, { ...product, quantity }]
-      }
-    })
-  }, [])
+  const clearCart = () => {
+    dispatch({ type: "CLEAR_CART" })
+  }
 
-  const removeFromCart = useCallback((productId: string) => {
-    setCart((prevCart) => {
-      const updatedCart = prevCart.filter((item) => item._id !== productId)
-      toast({
-        title: "Item Removed",
-        description: "Product removed from cart.",
-      })
-      return updatedCart
-    })
-  }, [])
-
-  const updateQuantity = useCallback((productId: string, newQuantity: number) => {
-    setCart((prevCart) => {
-      const updatedCart = prevCart.map((item) => {
-        if (item._id === productId) {
-          if (newQuantity < 1) {
-            toast({
-              title: "Quantity Error",
-              description: "Quantity cannot be less than 1.",
-              variant: "destructive",
-            })
-            return item
-          }
-          if (newQuantity > item.stock_quantity) {
-            toast({
-              title: "Out of Stock",
-              description: `Cannot exceed available stock (${item.stock_quantity}) for ${item.name}.`,
-              variant: "destructive",
-            })
-            return item
-          }
-          return { ...item, quantity: newQuantity }
-        }
-        return item
-      })
-      return updatedCart
-    })
-  }, [])
-
-  const clearCart = useCallback(() => {
-    setCart([])
-    toast({
-      title: "Cart Cleared",
-      description: "All items removed from cart.",
-    })
-  }, [])
-
-  const cartTotal = cart.reduce((total, item) => total + Number(item.price) * item.quantity, 0)
-  const cartItemCount = cart.reduce((count, item) => count + item.quantity, 0)
-
-  const value = React.useMemo(
-    () => ({
-      cart,
-      addToCart,
-      removeFromCart,
-      updateQuantity,
-      clearCart,
-      cartTotal,
-      cartItemCount,
-    }),
-    [cart, addToCart, removeFromCart, updateQuantity, clearCart, cartTotal, cartItemCount],
-  )
+  const value: CartContextType = {
+    ...state,
+    addItem,
+    removeItem,
+    updateQuantity,
+    clearCart,
+    cartItemCount: state.itemCount,
+  }
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>
 }

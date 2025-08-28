@@ -1,146 +1,115 @@
 import { create } from "zustand"
-import { persist, createJSONStorage } from "zustand/middleware"
+import { persist } from "zustand/middleware"
 import axios from "axios"
 
-const API_BASE_URL = "https://nextstyle-601aa5fe000d.herokuapp.com/api"
+// Create axios instance
+export const apiClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api",
+  timeout: 10000,
+})
 
 interface User {
   id: string
   email: string
-  role: "user" | "brand" | "admin"
-  is_brand_approved: boolean // Relevant for 'brand' role
-  access_token: string
-  refresh_token: string
+  name: string
+  avatar?: string
+  role: "user" | "admin" | "brand"
 }
 
 interface AuthState {
   user: User | null
-  isAuthenticated: boolean
   isLoading: boolean
-  signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; message: string }>
-  signIn: (email: string, password: string) => Promise<{ success: boolean; message: string }>
+  isAuthenticated: boolean
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string, name: string) => Promise<void>
   signOut: () => void
-  refreshToken: () => Promise<void>
-  initializeAuth: () => Promise<void>
+  updateUser: (userData: Partial<User>) => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      isAuthenticated: false,
       isLoading: false,
+      isAuthenticated: false,
 
-      signUp: async (email: string, password: string, name: string) => {
+      signIn: async (email: string, password: string) => {
+        set({ isLoading: true })
         try {
-          set({ isLoading: true })
-
-          const response = await axios.post(`${API_BASE_URL}/auth/signup`, {
+          // Mock sign in - replace with actual API call
+          const mockUser: User = {
+            id: "1",
             email,
-            password,
-            name,
-            role: "shopper",
-          })
+            name: email.split("@")[0],
+            role: "user",
+          }
 
-          if (response.data.success) {
-            const { user, access_token, refresh_token } = response.data.data
-            set({
-              user: { ...user, access_token, refresh_token },
-              isAuthenticated: true,
-              isLoading: false,
-            })
-            return { success: true, message: "Account created successfully!" }
-          } else {
-            set({ isLoading: false })
-            return { success: false, message: response.data.message || "Sign up failed" }
+          // Set auth token in cookie
+          if (typeof document !== "undefined") {
+            document.cookie = `auth-token=mock-token-${Date.now()}; path=/; max-age=86400`
           }
-        } catch (error: any) {
+
+          set({
+            user: mockUser,
+            isAuthenticated: true,
+            isLoading: false,
+          })
+        } catch (error) {
           set({ isLoading: false })
-          return {
-            success: false,
-            message: error.response?.data?.message || "An error occurred during sign up",
-          }
+          throw error
         }
       },
 
-      signIn: async (email: string, password: string) => {
+      signUp: async (email: string, password: string, name: string) => {
+        set({ isLoading: true })
         try {
-          set({ isLoading: true })
-
-          const response = await axios.post(`${API_BASE_URL}/auth/login`, {
+          // Mock sign up - replace with actual API call
+          const mockUser: User = {
+            id: Date.now().toString(),
             email,
-            password,
-          })
+            name,
+            role: "user",
+          }
 
-          if (response.data.success) {
-            const { user, access_token, refresh_token } = response.data.data
-            set({
-              user: { ...user, access_token, refresh_token },
-              isAuthenticated: true,
-              isLoading: false,
-            })
-            return { success: true, message: "Signed in successfully!" }
-          } else {
-            set({ isLoading: false })
-            return { success: false, message: response.data.message || "Sign in failed" }
+          // Set auth token in cookie
+          if (typeof document !== "undefined") {
+            document.cookie = `auth-token=mock-token-${Date.now()}; path=/; max-age=86400`
           }
-        } catch (error: any) {
+
+          set({
+            user: mockUser,
+            isAuthenticated: true,
+            isLoading: false,
+          })
+        } catch (error) {
           set({ isLoading: false })
-          return {
-            success: false,
-            message: error.response?.data?.message || "An error occurred during sign in",
-          }
+          throw error
         }
       },
 
       signOut: () => {
+        // Remove auth token cookie
+        if (typeof document !== "undefined") {
+          document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
+        }
+
         set({
           user: null,
           isAuthenticated: false,
-          isLoading: false,
         })
       },
 
-      refreshToken: async () => {
-        try {
-          const { user } = get()
-          if (!user || !user.refresh_token) return
-
-          const response = await axios.post(
-            `${API_BASE_URL}/auth/refresh-token`,
-            {},
-            {
-              headers: {
-                Authorization: `Bearer ${user.access_token}`,
-              },
-            },
-          )
-
-          if (response.data.success) {
-            const { user: updatedUser, access_token: newAccessToken } = response.data.data
-            set({
-              user: { ...updatedUser, access_token: newAccessToken },
-              isAuthenticated: true,
-            })
-          } else {
-            get().signOut()
-          }
-        } catch (error) {
-          console.error("Token refresh failed:", error)
-          get().signOut()
-        }
-      },
-
-      initializeAuth: async () => {
-        const { user, refreshToken } = get()
-        if (user && user.access_token) {
-          await refreshToken()
+      updateUser: (userData: Partial<User>) => {
+        const currentUser = get().user
+        if (currentUser) {
+          set({
+            user: { ...currentUser, ...userData },
+          })
         }
       },
     }),
     {
       name: "auth-storage",
-      storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
@@ -149,32 +118,29 @@ export const useAuthStore = create<AuthState>()(
   ),
 )
 
-// Create axios instance with auth interceptor
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+// Add request interceptor to include auth token
+apiClient.interceptors.request.use((config) => {
+  if (typeof document !== "undefined") {
+    const authToken = document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("auth-token="))
+      ?.split("=")[1]
+
+    if (authToken) {
+      config.headers.Authorization = `Bearer ${authToken}`
+    }
+  }
+
+  return config
 })
 
-// Add request interceptor to include auth token
-apiClient.interceptors.request.use(
-  (config) => {
-    const state = useAuthStore.getState()
-    if (state.user?.access_token) {
-      config.headers.Authorization = `Bearer ${state.user.access_token}`
-    }
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
-  },
-)
-
-// Add response interceptor to handle token refresh
+// Add response interceptor to handle auth errors
 apiClient.interceptors.response.use(
   (response) => response,
-  async (error) => {
+  (error) => {
     if (error.response?.status === 401) {
-      const state = useAuthStore.getState()
-      await state.refreshToken()
+      // Clear auth state on 401
+      useAuthStore.getState().signOut()
     }
     return Promise.reject(error)
   },
